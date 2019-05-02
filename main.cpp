@@ -1,3 +1,5 @@
+// This is an open source non-commercial project. Dear PVS-Studio, please check it.
+// PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
 /**
  * Lum, Darrell and Zipkin, Greg
  * CSC 570 Final Project
@@ -15,25 +17,32 @@
  * quad tree in the geometry image.
  */
 
-#include <stdio.h>
-#include <math.h>
-#include <stdlib.h>
-#include <vector>
 #include <iostream>
 #include <fstream>
-#include <GL\glut.h>
-#include <assert.h>
+#include <cmath>
+#include <cstdlib>
+#include <vector>
+#include <cassert>
 #include <map>
-#include <time.h>
+#include <ctime>
+#include <filesystem>
+#include <sstream>
+#include <random>
+
+#ifdef WIN32
 #include <windows.h>
+#endif
+
+#include <gl/glut.h>
+#include <gl/freeglut.h>
+
 
 using namespace std;
-#define FLT_MIN 1.1754E-38F
-#define FLT_MAX 1.1754E+38F
 
-#pragma warning (disable:4018) // signed/unsigned mismatch
-#pragma warning (disable:4996) // sprintf, sscanf, fopen_s depreciated
-#pragma warning (disable:4267) // size_t to int, possible loss of data
+
+//#pragma warning (disable:4018) // signed/unsigned mismatch
+//#pragma warning (disable:4996) // sprintf, sscanf, fopen_s depreciated
+//#pragma warning (disable:4267) // size_t to int, possible loss of data
 
 /* Forward declarations */
 void createInitialCutPart1();
@@ -43,13 +52,13 @@ void reshape(int w, int h);
 
 /** Constants */
 // Debugging flag (print out variable values to the console)
-const int __DEBUG = 0;
-const float PI = 3.14159265358979323846; // PI
-const float normScale = 0.01;     // Scaling factor for normals
-const float MAX_SCALE = 3.0;      // Maximum scale factor
-const float MIN_SCALE = 0.2;      // Minimum scale factor
-const float MAX_TRANSLATE = 2.0;  // Maximum translation window
-const float MIN_TRANSLATE = -2.0; // Minimum translation window
+const int __DEBUG = 1;
+const float PI = static_cast<float>(3.14159265358979323846);
+const float normScale = 0.01f;     // Scaling factor for normals
+const float MAX_SCALE = 3.0f;      // Maximum scale factor
+const float MIN_SCALE = 0.2f;      // Minimum scale factor
+const float MAX_TRANSLATE = 2.0f;  // Maximum translation window
+const float MIN_TRANSLATE = -2.0f; // Minimum translation window
 
 const int MATERIAL_GOLD = 1;      // Gold surface material
 const int MATERIAL_TURQUOISE = 2; // Turqoise surface material
@@ -67,6 +76,7 @@ const int USER_TRANSLATE = 10;     // User will translate the figure
 const int USER_SCALE = 11;        // User will scale the figure
 const int USER_ROTATE = 12;       // User will rotate the figure
 const int USER_NULL = 13;         // User doesn't wish to transform
+const float SPEED_ROT = 0.15f;
 
 /** Flags */
 int user_material;  // User's choice of which surface material to use
@@ -82,6 +92,8 @@ bool stepping_through; // true to prevent multiple simultaneous simulations
 bool cullingon;
 bool drawReconEdges;
 
+static default_random_engine rnd_engine;
+
 float eyez;
 
 /** Other global variables */
@@ -90,6 +102,7 @@ int GW;             // Global width
 int GH;             // Global height
 float lightScale;   // Light scaling factor
 float scaleFactor;  // Uniform scaling factor
+float total_angle;
 float theta;        // Rotation angle
 float xw;           // Mouse click x position in world coordinates
 float yw;           // Mouse click y position in world coordinates
@@ -100,16 +113,16 @@ float yTrans;       // Translation of y movement in world coordinates
 float cubex;
 float cubey;
 float cubez;
-const float CULLING_STEP_SIZE = 0.05;
+const float CULLING_STEP_SIZE = 0.05f;
 
 /*
  * Data structure for the image used for texture mapping.
  */
-typedef struct Image {
+struct Image {
 	unsigned long sizeX;  // Width of image
 	unsigned long sizeY;  // Height of image
-	char *data;           // RGB values of image
-} Image;
+	char * data;           // RGB values of image
+};
 
 Image *TextureImage;    // Holds loaded textures
 Image *TextureNormalImage;    // Holds loaded textures
@@ -117,20 +130,21 @@ Image *TextureNormalImage;    // Holds loaded textures
 /*
  * Data structure for RGB values.  0 <= r, g, b <= 1.
  */
-typedef struct RGB {
+struct RGB {
 	float r;  // Red value
 	float g;  // Green value
 	float b;  // Blue value
-} RGB;
+};
 
-int GIMxInd; // X-coordinate for stepping through mesh reconstruction from GIM
-int GIMyInd; // Y-coordinate for stepping through mesh reconstruction from GIM
+size_t GIMxInd; // X-coordinate for stepping through mesh reconstruction from GIM
+size_t GIMyInd; // Y-coordinate for stepping through mesh reconstruction from GIM
 
 
 RGB myimage[65][65]; // Holds a pixel-by-pixel representation of a GIM, loaded from a texture
 RGB myimage2[65][65]; // For culling
 RGB myimage3[65][65]; // For restoring before culling
 RGB mynormalimage[65][65];
+
 vector<int> pixelToTri[65][65];
 
 struct GIMQuadTreeNode {
@@ -158,10 +172,10 @@ GIMQuadTreeNode * createQuadTree(int size, int startX, int startY, RGB grid[65][
 void cull();
 
 RGB* pixel;  // Temporary holder for a bitmap pixel
-int ImageLoad(char *filename, Image *image);
-GLvoid LoadTexture(char* image_file, int tex_id);
-int NormalImageLoad(char *filename, Image *image);
-GLvoid LoadTextureNormal(char* image_file, int tex_id);
+int ImageLoad(const filesystem::path & filename, Image *image);
+GLvoid LoadTexture(const filesystem::path & filename, int tex_id);
+int NormalImageLoad(const filesystem::path & filename, Image *image);
+GLvoid LoadTextureNormal(const filesystem::path & filename, int tex_id);
 void init_tex();
 void init();
 void makeMyImage();
@@ -170,7 +184,7 @@ void makeMyNormalImage();
 /**
  * Vector3 is a structure that stores 3D points.
  */
-typedef struct Vector3
+struct Vector3
 {
 	float x;
 	float y;
@@ -178,12 +192,12 @@ typedef struct Vector3
 
 	Vector3(float in_x, float in_y, float in_z) : x(in_x), y(in_y), z(in_z) {}
 	Vector3() {}
-} Vector3;
+};
 
 /**
  * Point3 is a structure that stores 3D points and normals to those points.
  */
-typedef struct Point3
+struct Point3
 {
 	float x;
 	float y;
@@ -195,24 +209,22 @@ typedef struct Point3
 		normal.x = normal.y = normal.z = 0;
 	}
 	Point3() {}
-} Point3;
+};
 
 /**
  * Tri is a structure that stores triangles whose shape is determined by
  * three vertices.
  */
-typedef struct Tri {
-	int v1;
-	int v2;
-	int v3;
+struct Tri {
+	size_t v1, v2, v3;
 	Vector3 normal; // Normal to the face of the triangle
 	Vector3 color;
 	bool drawn; // true if not culled
 
-	Tri(int in_v1, int in_v2, int in_v3) : v1(in_v1), v2(in_v2), v3(in_v3),
+	Tri(size_t in_v1, size_t in_v2, size_t in_v3) : v1(in_v1), v2(in_v2), v3(in_v3),
 		normal(0, 1, 0), drawn(true) {}
 	Tri() : normal(0, 1, 0) {}
-} Tri;
+};
 
 /* Mesh variables */
 // STL vector to store all the triangles in the mesh
@@ -224,14 +236,14 @@ vector<Vector3 *> Vertices;
 vector<Point3 *> VPoints;
 
 /* Cut-path variables */
-typedef struct Edge {
+struct Edge {
 	int v1;
 	int v2;
 	Vector3 color;
 
-	Edge(int in_v1, int in_v2) : v1(in_v1), v2(in_v2) {}
-	Edge(int in_v1, int in_v2, Vector3 in_color) : v1(in_v1), v2(in_v2), color(in_color) {}
-} Edge;
+	Edge(size_t in_v1, size_t in_v2) : v1(in_v1), v2(in_v2) {}
+	Edge(size_t in_v1, size_t in_v2, Vector3 in_color) : v1(in_v1), v2(in_v2), color(in_color) {}
+};
 
 vector<Edge *> cutPathEdges;
 vector<Point3 *> originalVPoints;
@@ -253,36 +265,36 @@ float max_x, max_y, max_z, min_x, min_y, min_z;
 float max_extent;
 
 /** Globals for lighting */
-GLfloat light_pos[4] = { 1.0, 1.0, 1.5, 1.0 }; // Light position
+GLfloat light_pos[4] = { 1.0f, 1.0f, 1.5f, 1.0f }; // Light position
 
 // White light color
-GLfloat light_amb[4] = { 0.6, 0.6, 0.6, 1.0 };  // Light ambience component
-GLfloat light_diff[4] = { 0.6, 0.6, 0.6, 1.0 }; // Light diffuse component
-GLfloat light_spec[4] = { 0.8, 0.8, 0.8, 1.0 }; // Light specular component
+GLfloat light_amb[4] = { 0.6f, 0.6f, 0.6f, 1.0f };  // Light ambience component
+GLfloat light_diff[4] = { 0.6f, 0.6f, 0.6f, 1.0f }; // Light diffuse component
+GLfloat light_spec[4] = { 0.8f, 0.8f, 0.8f, 1.0f }; // Light specular component
 
 int mat = 0;        // Color value from file
 
 /**
  * materialStruct defines the lighting components for materials.
  */
-typedef struct materialStruct
+struct materialStruct
 {
 	GLfloat ambient[4];
 	GLfloat diffuse[4];
 	GLfloat specular[4];
 	GLfloat shininess[1];
-} materialStruct;
+};
 
 materialStruct gold = {
-	{0.24725, 0.1995, 0.0745, 1.0},
-	{0.75164, 0.60648, 0.22648, 1.0},
-	{0.628281, 0.555802, 0.366065, 1.0},
-	{0.4}
+	{0.24725f, 0.1995f, 0.0745f, 1.0f},
+	{0.75164f, 0.60648f, 0.22648f, 1.0f},
+	{0.628281f, 0.555802f, 0.366065f, 1.0f},
+	{0.4f}
 };
 
 materialStruct turquoise = {
-	{0.1, 0.18725, 0.1745, 1.0},
-	{0.396, 0.74151, 0.69102, 1.0},
+	{0.1f, 0.18725, 0.1745, 1.0},
+	{0.396f, 0.74151, 0.69102, 1.0},
 	{0.297254, 0.30829, 0.306678, 1.0},
 	{0.1}
 };
@@ -295,8 +307,8 @@ materialStruct emerald = {
 };
 
 /** Forward function declarations */
-void crossProd(Vector3 a, Vector3 b, Vector3 &c);
-void readLine(char* str);
+void crossProd(const Vector3 & a, const Vector3 & b, Vector3 &c);
+int readLine(string_view str, size_t);
 void readStream(istream& is);
 void drawTri(Tri * t);
 void drawObjects();
@@ -384,9 +396,9 @@ float p2w_y(int yPixel)
  * v1:  first vector
  * v2:  second vector
  */
-float dotProd(Vector3 v1, Vector3 v2)
+float dotProd(const Vector3 & v1, const Vector3 & v2)
 {
-	return v1.x*v2.x + v1.y*v2.y + v1.z*v2.z;
+	return v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
 }
 
 /**
@@ -396,7 +408,7 @@ float dotProd(Vector3 v1, Vector3 v2)
  * c:  resulting cross product of a and b
  * Postcondition:  c will have the cross product of a and b.
  */
-void crossProd(Vector3 a, Vector3 b, Vector3 &c)
+void crossProd(const Vector3 & a, const Vector3 & b, Vector3 &c)
 {
 	c.x = a.y*b.z - a.z*b.y;
 	c.y = a.z*b.x - a.x*b.z;
@@ -408,7 +420,7 @@ void crossProd(Vector3 a, Vector3 b, Vector3 &c)
  * v1:  first vector
  * v2:  second vector
  */
-float getAngle(Vector3 v1, Vector3 v2)
+float getAngle(const Vector3 & v1, const Vector3 & v2)
 {
 	float len1 = sqrt(v1.x*v1.x + v1.y*v1.y + v1.z*v1.z);
 	float len2 = sqrt(v2.x*v2.x + v2.y*v2.y + v2.z*v2.z);
@@ -489,18 +501,33 @@ void getVector(Vector3 &v, int x, int y)
  * Open a file for reading coordinates.
  * filename:  the file to open.
  */
-void ReadFile(char * filename)
+void ReadFile(const char * filename)
 {
-	printf("Reading coordinates from %s\n", filename);
+	cout << "Reading coordinates from " << filename << endl;
 
 	ifstream in_f(filename);
+
 	if (!in_f)
 	{
-		printf("Could not open file %s\n", filename);
+		cout << "Could not open file: " << filename << endl;
 	}
 	else
 	{
 		readStream(in_f);
+
+		if (!in_f.eof())
+		{
+			cout << "Error while reading a file: ";
+
+			if ((in_f.rdstate() & std::ifstream::failbit) != 0)
+			{
+				cout << "Logical error on i/o operation" << endl;
+			}
+			else if ((in_f.rdstate() & std::ifstream::badbit) != 0)
+			{
+				cout << "Read/writing error on i/o operation" << endl;
+			}
+		}
 	}
 }
 
@@ -508,16 +535,26 @@ void ReadFile(char * filename)
  * Process the input stream from an input stream.
  * is:  the stream to read from.
  */
-void readStream(istream& is)
+void readStream(istream & is)
 {
-	char str[256];
-	for (; is;)
+	string current_str{};
+	size_t line{ 0 };
+
+	while (!is.eof())
 	{
-		is >> ws;
-		is.get(str, sizeof(str));
-		if (!is) break;
-		is.ignore(9999, '\n');
-		readLine(str);
+		getline(is, current_str);
+
+		if (is.eof() || !is)
+		{
+			break;
+		}
+
+		if (!readLine(current_str, line))
+		{
+			break;
+		}
+
+		line++;
 	}
 }
 
@@ -527,32 +564,32 @@ void readStream(istream& is)
 void calcAllVertexNormals()
 {
 	// For each face
-	for (int i = 0; i < Triangles.size(); i++)
+	for (size_t i = 0; i < Triangles.size(); i++)
 	{
 		// Add that face's normal to each vertex's normal
-		VPoints[Triangles[i]->v1 - 1]->normal.x += Triangles[i]->normal.x;
-		VPoints[Triangles[i]->v1 - 1]->normal.y += Triangles[i]->normal.y;
-		VPoints[Triangles[i]->v1 - 1]->normal.z += Triangles[i]->normal.z;
+		VPoints.at(Triangles[i]->v1 - 1)->normal.x += Triangles[i]->normal.x;
+		VPoints.at(Triangles[i]->v1 - 1)->normal.y += Triangles[i]->normal.y;
+		VPoints.at(Triangles[i]->v1 - 1)->normal.z += Triangles[i]->normal.z;
 
-		VPoints[Triangles[i]->v2 - 1]->normal.x += Triangles[i]->normal.x;
-		VPoints[Triangles[i]->v2 - 1]->normal.y += Triangles[i]->normal.y;
-		VPoints[Triangles[i]->v2 - 1]->normal.z += Triangles[i]->normal.z;
+		VPoints.at(Triangles[i]->v2 - 1)->normal.x += Triangles[i]->normal.x;
+		VPoints.at(Triangles[i]->v2 - 1)->normal.y += Triangles[i]->normal.y;
+		VPoints.at(Triangles[i]->v2 - 1)->normal.z += Triangles[i]->normal.z;
 
-		VPoints[Triangles[i]->v3 - 1]->normal.x += Triangles[i]->normal.x;
-		VPoints[Triangles[i]->v3 - 1]->normal.y += Triangles[i]->normal.y;
-		VPoints[Triangles[i]->v3 - 1]->normal.z += Triangles[i]->normal.z;
+		VPoints.at(Triangles[i]->v3 - 1)->normal.x += Triangles[i]->normal.x;
+		VPoints.at(Triangles[i]->v3 - 1)->normal.y += Triangles[i]->normal.y;
+		VPoints.at(Triangles[i]->v3 - 1)->normal.z += Triangles[i]->normal.z;
 	}
 
 	// For each vertex
-	for (int j = 0; j < Vertices.size(); j++)
+	for (size_t j = 0; j < Vertices.size(); j++)
 	{
 		// Normalize that normal
-		float length = sqrt(VPoints[j]->normal.x*VPoints[j]->normal.x
-			+ VPoints[j]->normal.y*VPoints[j]->normal.y
-			+ VPoints[j]->normal.z*VPoints[j]->normal.z);
-		VPoints[j]->normal.x /= length;
-		VPoints[j]->normal.y /= length;
-		VPoints[j]->normal.z /= length;
+		float length = sqrt(VPoints.at(j)->normal.x*VPoints.at(j)->normal.x
+			+ VPoints.at(j)->normal.y*VPoints.at(j)->normal.y
+			+ VPoints.at(j)->normal.z*VPoints.at(j)->normal.z);
+		VPoints.at(j)->normal.x /= length;
+		VPoints.at(j)->normal.y /= length;
+		VPoints.at(j)->normal.z /= length;
 	}
 }
 
@@ -562,7 +599,7 @@ void calcAllVertexNormals()
 void calcAllNewVertexNormals()
 {
 	// For each face
-	for (int i = 0; i < newTriangles.size(); i++)
+	for (size_t i = 0; i < newTriangles.size(); i++)
 	{
 		// Add that face's normal to each vertex's normal
 		newVPoints[newTriangles[i]->v1 - 1]->normal.x += newTriangles[i]->normal.x;
@@ -579,15 +616,15 @@ void calcAllNewVertexNormals()
 	}
 
 	// For each vertex
-	for (int j = 0; j < newVertices.size(); j++)
+	for (size_t j = 0; j < newVertices.size(); j++)
 	{
 		// Normalize that normal
-		float length = sqrt(newVPoints[j]->normal.x*newVPoints[j]->normal.x
-			+ newVPoints[j]->normal.y*newVPoints[j]->normal.y
-			+ newVPoints[j]->normal.z*newVPoints[j]->normal.z);
-		newVPoints[j]->normal.x /= length;
-		newVPoints[j]->normal.y /= length;
-		newVPoints[j]->normal.z /= length;
+		float length = sqrt(newVPoints.at(j)->normal.x*newVPoints.at(j)->normal.x
+			+ newVPoints.at(j)->normal.y*newVPoints.at(j)->normal.y
+			+ newVPoints.at(j)->normal.z*newVPoints.at(j)->normal.z);
+		newVPoints.at(j)->normal.x /= length;
+		newVPoints.at(j)->normal.y /= length;
+		newVPoints.at(j)->normal.z /= length;
 	}
 }
 
@@ -615,24 +652,40 @@ void calcNormal(Tri* t)
  * Process each line of input and save vertices and faces appropriately.
  * str:  Input line to process.
  */
-void readLine(char * str)
+int readLine(string_view str, size_t line_num)
 {
-	int indx = 0, vi;
-	float x, y, z;
-	float r, g, b;
-	int mat;
+	size_t indx{}, vi{};
+	float x{}, y{}, z{};
+	float r{}, g{}, b{};
+	int mat{};
 
-	if (str[0] == '#')
+	if (str.at(0) == '#')
 	{
-		return;
+		return 1;
 	}
 
+	stringstream stream;
+
+	stream << str;
+
+	string name;
+
+	stream >> name;
+
 	// Read a vertex or face
-	if (str[0] == 'V' && !strncmp(str, "Vertex ", 7))
+	if (name == "Vertex")
 	{
 		Vector3* v;
 		Point3* p;
-		assert(sscanf(str, "Vertex %d %g %g %g", &vi, &x, &y, &z) == 4);
+
+		stream >> vi >> x >> y >> z;
+
+		if (!stream)
+		{
+			cout << "Cannot parse values at " << line_num << endl;
+			cout << "Incorrect line is " << str << endl;
+		}
+
 		v = new Vector3(x, y, z);
 		p = new Point3(*v);
 
@@ -648,13 +701,12 @@ void readLine(char * str)
 		if (v->y > max_y) max_y = v->y; if (v->y < min_y) min_y = v->y;
 		if (v->z > max_z) max_z = v->z; if (v->z < min_z) min_z = v->z;
 	}
-	else if (str[0] == 'F' && !strncmp(str, "Face ", 5))
+	else if (name == "Face")
 	{
-		Tri* t;
-		t = new Tri();
-		char * s = str + 4;
+		Tri * t = new Tri();
+		const char * s = str.data() + 4;
 		int fi = -1;
-		for (int t_i = 0; ; t_i++)
+		for (unsigned int t_i = 0; ; t_i++)
 		{
 			while (*s && isspace(*s))
 				s++;
@@ -663,7 +715,7 @@ void readLine(char * str)
 				break;
 
 			// Save the position of the current character
-			char * beg = s;
+			const char * beg = s;
 
 			// Advance to next space
 			while (*s && isdigit(*s))
@@ -683,20 +735,23 @@ void readLine(char * str)
 			else if (t_i == 3) t->v3 = j;
 
 			// If there is more data to process break out
-			if (*s == '{') break;
+			if (*s == '{')
+				break;
 		}
 		// Possibly process colors if the mesh has colors
 		if (*s && *s == '{')
 		{
-			char *s1 = s + 1;
+			const char *s1 = s + 1;
 			cout << "trying to parse color " << !strncmp(s1, "rgb", 3) << endl;
 
 			// If we're reading off a color
 			if (!strncmp(s1, "rgb=", 4))
 			{
 				// Grab the values of the string
-				assert(sscanf(s1, "rgb=(%g %g %g) matid=%d", &r, &g, &b, &mat) == 4);
-				t->color.x = r; t->color.x = g; t->color.x = b;
+				assert(sscanf_s(s1, "rgb=(%g %g %g) matid=%d", &r, &g, &b, &mat) == 4);
+				t->color.x = r;
+				t->color.x = g;
+				t->color.x = b;
 				cout << "set color to: " << r << " " << g << " " << b << endl;
 			}
 		}
@@ -706,6 +761,8 @@ void readLine(char * str)
 		// Store the triangle read in
 		Triangles.push_back(t);
 	}
+
+	return 1;
 }
 
 /**
@@ -744,7 +801,7 @@ void drawTria(Tri* t)
 
 		//if(user_shade == SHADE_SMOOTH)
 		glNormal3f(VPoints[t->v2 - 1]->normal.x*lightScale / max_extent,
-			VPoints[t->v2 - 1]->normal.y*lightScale / max_extent,
+			VPoints[t->v2 - 1]->normal.y * lightScale / max_extent,
 			VPoints[t->v2 - 1]->normal.z*lightScale / max_extent);
 		glVertex3f(Vertices[t->v2 - 1]->x,
 			Vertices[t->v2 - 1]->y,
@@ -797,6 +854,7 @@ void drawGIM()
 	gluOrtho2D(0.0, GW, 0.0, GH);
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
+
 
 	glBegin(GL_POINTS);
 	if (!recreatedMesh)
@@ -881,10 +939,10 @@ void drawSphere()
  */
 void DrawAllVerts()
 {
-	glColor3f(1.0, 0.0, 1.0);
+	glColor3f(1.0f, 0.0f, 1.0f);
 	glBegin(GL_POINTS);
 
-	for (int k = 0; k < Vertices.size(); k++)
+	for (size_t k = 0; k < Vertices.size(); k++)
 	{
 		glVertex3f(Vertices[k]->x, Vertices[k]->y, Vertices[k]->z);
 	}
@@ -899,7 +957,7 @@ void drawHUD()
 	glPushMatrix();
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
-	gluOrtho2D(0.0, 1.0, 0.0, 1.0);
+	gluOrtho2D(0.0f, 1.0f, 0.0f, 1.0f);
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
 
@@ -909,36 +967,36 @@ void drawHUD()
 	if (!removedEandT && !removedVandE)
 	{
 		static char str1[50] = { 0 };
-		sprintf(str1, "Geometry Images Demo - Cutting Algorithm Part 1");
-		renderBitmapCharacter(0.24, 0.97, 1.0, GLUT_BITMAP_HELVETICA_18, str1);
+		sprintf_s(str1, "Geometry Images Demo - Cutting Algorithm Part 1");
+		renderBitmapCharacter(0.24f, 0.97f, 1.0f, GLUT_BITMAP_HELVETICA_18, str1);
 	}
 	else if (removedEandT && !removedVandE)
 	{
 		static char str1[50] = { 0 };
-		sprintf(str1, "Geometry Images Demo - Cutting Algorithm Part 2");
-		renderBitmapCharacter(0.24, 0.97, 1.0, GLUT_BITMAP_HELVETICA_18, str1);
+		sprintf_s(str1, "Geometry Images Demo - Cutting Algorithm Part 2");
+		renderBitmapCharacter(0.24f, 0.97f, 1.0f, GLUT_BITMAP_HELVETICA_18, str1);
 	}
 	else
 	{
 		if (!recreating)
 		{
 			static char str1[50] = { 0 };
-			sprintf(str1, "Geometry Images Demo - Finished Cut-Path");
-			renderBitmapCharacter(0.26, 0.97, 1.0, GLUT_BITMAP_HELVETICA_18, str1);
+			sprintf_s(str1, "Geometry Images Demo - Finished Cut-Path");
+			renderBitmapCharacter(0.26f, 0.97f, 1.0f, GLUT_BITMAP_HELVETICA_18, str1);
 		}
 		else
 		{
 			if (!cullingon)
 			{
 				static char str1[50] = { 0 };
-				sprintf(str1, "Geometry Images Demo - Mesh Reconstruction");
-				renderBitmapCharacter(0.25, 0.97, 1.0, GLUT_BITMAP_HELVETICA_18, str1);
+				sprintf_s(str1, "Geometry Images Demo - Mesh Reconstruction");
+				renderBitmapCharacter(0.25f, 0.97f, 1.0f, GLUT_BITMAP_HELVETICA_18, str1);
 			}
 			else
 			{
 				static char str1[50] = { 0 };
-				sprintf(str1, "Geometry Images Demo - Culling");
-				renderBitmapCharacter(0.33, 0.97, 1.0, GLUT_BITMAP_HELVETICA_18, str1);
+				sprintf_s(str1, "Geometry Images Demo - Culling");
+				renderBitmapCharacter(0.33f, 0.97f, 1.0f, GLUT_BITMAP_HELVETICA_18, str1);
 			}
 		}
 	}
@@ -946,13 +1004,13 @@ void drawHUD()
 	if (!removedEandT && !removedVandE)
 	{
 		static char str2[50] = { 0 };
-		sprintf(str2, "Color Key for cutting algorithm part 1:");
+		sprintf_s(str2, "Color Key for cutting algorithm part 1:");
 		renderBitmapCharacter(0.01, 0.92, 1.0, GLUT_BITMAP_9_BY_15, str2);
 	}
 	else if (removedEandT && !removedVandE)
 	{
 		static char str6[50] = { 0 };
-		sprintf(str6, "Color Key for cutting algorithm part 2:");
+		sprintf_s(str6, "Color Key for cutting algorithm part 2:");
 		renderBitmapCharacter(0.01, 0.92, 1.0, GLUT_BITMAP_9_BY_15, str6);
 	}
 	else
@@ -960,21 +1018,21 @@ void drawHUD()
 		if (!recreating)
 		{
 			static char str2[50] = { 0 };
-			sprintf(str2, "Color Key for finished cut:");
+			sprintf_s(str2, "Color Key for finished cut:");
 			renderBitmapCharacter(0.01, 0.92, 1.0, GLUT_BITMAP_9_BY_15, str2);
 		}
 		else
 		{
 			static char str2[50] = { 0 };
-			sprintf(str2, "Color Key for reconstruction:");
+			sprintf_s(str2, "Color Key for reconstruction:");
 			renderBitmapCharacter(0.01, 0.92, 1.0, GLUT_BITMAP_9_BY_15, str2);
 
 			static char str19[50] = { 0 };
-			sprintf(str19, "Geometry Image");
+			sprintf_s(str19, "Geometry Image");
 			renderBitmapCharacter(0.81, 0.21, 1.0, GLUT_BITMAP_9_BY_15, str19);
 
 			static char str20[50] = { 0 };
-			sprintf(str20, "Normal Map");
+			sprintf_s(str20, "Normal Map");
 			renderBitmapCharacter(0.83, 0.098, 1.0, GLUT_BITMAP_9_BY_15, str20);
 		}
 	}
@@ -983,7 +1041,7 @@ void drawHUD()
 	{
 		static char str3[50] = { 0 };
 		glColor3f(0.8, 0.6, 0.0);
-		sprintf(str3, "Mesh faces");
+		sprintf_s(str3, "Mesh faces");
 		renderBitmapCharacter(0.04, 0.89, 1.0, GLUT_BITMAP_9_BY_15, str3);
 	}
 
@@ -991,14 +1049,14 @@ void drawHUD()
 	{
 		static char str18[50] = { 0 };
 		glColor3f(1.0, 0.0, 0.0);
-		sprintf(str18, "Mesh edges");
+		sprintf_s(str18, "Mesh edges");
 		renderBitmapCharacter(0.04, 0.87, 1.0, GLUT_BITMAP_9_BY_15, str18);
 	}
 	if (cullingon)
 	{
 		static char str18[50] = { 0 };
 		glColor3f(0.0, 1.0, 1.0);
-		sprintf(str18, "Culling box");
+		sprintf_s(str18, "Culling box");
 		renderBitmapCharacter(0.04, 0.85, 1.0, GLUT_BITMAP_9_BY_15, str18);
 	}
 
@@ -1006,24 +1064,24 @@ void drawHUD()
 	{
 		static char str4[50] = { 0 };
 		glColor3f(1.0, 0.0, 0.0);
-		sprintf(str4, "Mesh edges");
+		sprintf_s(str4, "Mesh edges");
 		renderBitmapCharacter(0.04, 0.87, 1.0, GLUT_BITMAP_9_BY_15, str4);
 
 		static char str5[50] = { 0 };
 		glColor3f(0.0, 1.0, 0.0);
-		sprintf(str5, "Possible cut-path edges to be removed");
+		sprintf_s(str5, "Possible cut-path edges to be removed");
 		renderBitmapCharacter(0.04, 0.85, 1.0, GLUT_BITMAP_9_BY_15, str5);
 	}
 	else if (removedEandT && !removedVandE)
 	{
 		static char str4[50] = { 0 };
 		glColor3f(0.0, 1.0, 0.0);
-		sprintf(str4, "Cut-path edges");
+		sprintf_s(str4, "Cut-path edges");
 		renderBitmapCharacter(0.04, 0.89, 1.0, GLUT_BITMAP_9_BY_15, str4);
 
 		static char str5[50] = { 0 };
 		glColor3f(1.0, 0.6, 0.6);
-		sprintf(str5, "Possible cut-path edges to be removed");
+		sprintf_s(str5, "Possible cut-path edges to be removed");
 		renderBitmapCharacter(0.04, 0.87, 1.0, GLUT_BITMAP_9_BY_15, str5);
 	}
 	else
@@ -1032,7 +1090,7 @@ void drawHUD()
 		{
 			static char str4[50] = { 0 };
 			glColor3f(0.0, 1.0, 0.0);
-			sprintf(str4, "Cut-path edges");
+			sprintf_s(str4, "Cut-path edges");
 			renderBitmapCharacter(0.04, 0.87, 1.0, GLUT_BITMAP_9_BY_15, str4);
 		}
 	}
@@ -1044,7 +1102,7 @@ void drawHUD()
 		if (!recreating)
 		{
 			static char str7[50] = { 0 };
-			sprintf(str7, "Number of edges in cut-path: %d", cutPathEdges.size());
+			sprintf_s(str7, "Number of edges in cut-path: %u", cutPathEdges.size());
 			renderBitmapCharacter(0.6, 0.92, 1.0, GLUT_BITMAP_9_BY_15, str7);
 		}
 		else
@@ -1052,7 +1110,7 @@ void drawHUD()
 			if (cullingon == false)
 			{
 				static char str7[50] = { 0 };
-				sprintf(str7, "Number of triangles: %d", newTriangles.size());
+				sprintf_s(str7, "Number of triangles: %u", newTriangles.size());
 				renderBitmapCharacter(0.7, 0.92, 1.0, GLUT_BITMAP_9_BY_15, str7);
 			}
 			else
@@ -1060,14 +1118,14 @@ void drawHUD()
 				int count = 0;
 
 				static char str7[50] = { 0 };
-				for (int i = 0; i < newTriangles.size(); i++)
+				for (size_t i = 0; i < newTriangles.size(); i++)
 				{
 					if (newTriangles[i]->drawn)
 					{
 						count++;
 					}
 				}
-				sprintf(str7, "Number of triangles drawn: %d", count);
+				sprintf_s(str7, "Number of triangles drawn: %u", count);
 				renderBitmapCharacter(0.63, 0.92, 1.0, GLUT_BITMAP_9_BY_15, str7);
 			}
 		}
@@ -1075,48 +1133,48 @@ void drawHUD()
 	else
 	{
 		static char str7[50] = { 0 };
-		sprintf(str7, "Number of triangles: %d", Triangles.size());
+		sprintf_s(str7, "Number of triangles: %u", Triangles.size());
 		renderBitmapCharacter(0.7, 0.92, 1.0, GLUT_BITMAP_9_BY_15, str7);
 
 		static char str8[50] = { 0 };
-		sprintf(str8, "Number of edges: %d", cutPathEdges.size());
+		sprintf_s(str8, "Number of edges: %u", cutPathEdges.size());
 		renderBitmapCharacter(0.7, 0.90, 1.0, GLUT_BITMAP_9_BY_15, str8);
 	}
 
 	static char str9[50] = { 0 };
-	sprintf(str9, "Controls:");
+	sprintf_s(str9, "Controls:");
 	renderBitmapCharacter(0.01, 0.19, 1.0, GLUT_BITMAP_9_BY_15, str9);
 
 	static char str10[50] = { 0 };
-	sprintf(str10, "A: Watch cutting algorithm part 1");
+	sprintf_s(str10, "A: Watch cutting algorithm part 1");
 	renderBitmapCharacter(0.04, 0.16, 1.0, GLUT_BITMAP_9_BY_15, str10);
 
 	static char str11[50] = { 0 };
-	sprintf(str11, "S: Watch cutting algorithm part 2");
+	sprintf_s(str11, "S: Watch cutting algorithm part 2");
 	renderBitmapCharacter(0.04, 0.14, 1.0, GLUT_BITMAP_9_BY_15, str11);
 
 	static char str13[50] = { 0 };
-	sprintf(str13, "D: Watch reconstruction algorithm");
+	sprintf_s(str13, "D: Watch reconstruction algorithm");
 	renderBitmapCharacter(0.04, 0.12, 1.0, GLUT_BITMAP_9_BY_15, str13);
 
 	static char str14[50] = { 0 };
-	sprintf(str14, "F: Turn on culling");
+	sprintf_s(str14, "F: Turn on culling");
 	renderBitmapCharacter(0.04, 0.10, 1.0, GLUT_BITMAP_9_BY_15, str14);
 
 	static char str15[50] = { 0 };
-	sprintf(str15, "NUMPAD: Move culling box");
+	sprintf_s(str15, "NUMPAD: Move culling box");
 	renderBitmapCharacter(0.04, 0.08, 1.0, GLUT_BITMAP_9_BY_15, str15);
 
 	static char str16[50] = { 0 };
-	sprintf(str16, "E: Show reconstructed mesh edges");
+	sprintf_s(str16, "E: Show reconstructed mesh edges");
 	renderBitmapCharacter(0.04, 0.06, 1.0, GLUT_BITMAP_9_BY_15, str16);
 
 	static char str17[50] = { 0 };
-	sprintf(str17, "< >: Camera Movement");
+	sprintf_s(str17, "< >: Camera Movement");
 	renderBitmapCharacter(0.04, 0.04, 1.0, GLUT_BITMAP_9_BY_15, str17);
 
 	static char str12[50] = { 0 };
-	sprintf(str12, "SPACEBAR: Step through current algorithm manually");
+	sprintf_s(str12, "SPACEBAR: Step through current algorithm manually");
 	renderBitmapCharacter(0.04, 0.02, 1.0, GLUT_BITMAP_9_BY_15, str12);
 
 	glPopMatrix();
@@ -1187,7 +1245,7 @@ void drawReconstructedMeshEdges()
 {
 	glLineWidth(2.0);
 
-	for (int i = 0; i < newTriangles.size(); i++)
+	for (size_t i{ 0 }; i < newTriangles.size(); i++)
 	{
 		draw_edge(*newVertices[newTriangles[i]->v1 - 1], *newVertices[newTriangles[i]->v2 - 1]);
 		draw_edge(*newVertices[newTriangles[i]->v1 - 1], *newVertices[newTriangles[i]->v3 - 1]);
@@ -1210,7 +1268,7 @@ void drawObjects()
 	{
 		glPushMatrix();
 		glLoadIdentity();
-		glRotatef(theta, vCross.x, vCross.y, vCross.z);
+		glRotatef(total_angle, vCross.x, vCross.y, vCross.z);
 		glGetFloatv(GL_MODELVIEW_MATRIX, myMatrix);
 		glPopMatrix();
 	}
@@ -1240,7 +1298,7 @@ void drawObjects()
 		if (!recreating)
 		{
 			// Draw the mesh with cut path
-			for (int j = 0; j < originalTriangles.size(); j++)
+			for (size_t j = 0; j < originalTriangles.size(); j++)
 			{
 				drawTria(originalTriangles[j]);
 			}
@@ -1248,7 +1306,7 @@ void drawObjects()
 		else
 		{
 			//printf("%d ", newTriangles.size());
-			for (int j = 0; j < newTriangles.size(); j++)
+			for (size_t j = 0; j < newTriangles.size(); j++)
 			{
 				if (newTriangles[j]->drawn)
 				{
@@ -1273,7 +1331,7 @@ void drawObjects()
 	}
 
 	// Draw the wireframe mesh
-	for (int j = 0; j < Triangles.size(); j++)
+	for (size_t j = 0; j < Triangles.size(); j++)
 	{
 		drawTria(Triangles[j]);
 	}
@@ -1283,7 +1341,7 @@ void drawObjects()
 
 	if (!recreating)
 	{
-		for (int k = 0; k < cutPathEdges.size(); k++)
+		for (size_t k = 0; k < cutPathEdges.size(); k++)
 		{
 			drawEdge(cutPathEdges[k]);
 		}
@@ -1315,7 +1373,6 @@ void drawObjects()
  */
 void display()
 {
-	float numV = Vertices.size();
 
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	glMatrixMode(GL_MODELVIEW);
@@ -1406,14 +1463,15 @@ void keyboard(unsigned char key, int x, int y) {
 	case 'r': case 'R':
 		scaleFactor = 1;
 		xTrans = yTrans = 0;
+		total_angle = 0;
 		theta = 0;
 
 		for (i = 0; i < 16; i++)
 		{
-			myMatrix[i] = 0.0;
+			myMatrix[i] = 0.0f;
 		}
 
-		myMatrix[0] = myMatrix[5] = myMatrix[10] = myMatrix[15] = 1.0;
+		myMatrix[0] = myMatrix[5] = myMatrix[10] = myMatrix[15] = 1.0f;
 		break;
 		// Draw edges on reconstructed mesh
 	case 'e': case 'E':
@@ -1594,6 +1652,14 @@ void mouseRotate(int x, int y)
 	getVector(vFinal, x, y);
 	crossProd(vInitial, vFinal, vCross);
 	theta = radToDeg(getAngle(vInitial, vFinal));
+
+	total_angle += SPEED_ROT * theta;
+
+	if (total_angle >= 360)
+	{
+		total_angle -= 360;
+	}
+
 	if (__DEBUG == 1)
 	{
 		printf("theta = %f\n", theta);
@@ -1889,10 +1955,10 @@ void doMenus()
 }
 
 void calcEdges() {
-	int j;
+	size_t j{ 0 };
 	bool found;
 
-	for (int i = 0; i < Triangles.size(); i++)
+	for (size_t i = 0; i < Triangles.size(); i++)
 	{
 		found = false;
 		for (j = 0; j < cutPathEdges.size(); j++)
@@ -1933,7 +1999,7 @@ void calcEdges() {
 }
 
 void copyGeometry() {
-	int i;
+	size_t i{ 0 };
 	for (i = 0; i < Triangles.size(); i++)
 	{
 		originalTriangles.push_back(new Tri(Triangles[i]->v1, Triangles[i]->v2, Triangles[i]->v3));
@@ -1946,17 +2012,19 @@ void copyGeometry() {
 
 	for (i = 0; i < VPoints.size(); i++)
 	{
-		originalVPoints.push_back(new Point3(Vector3(VPoints[i]->x, VPoints[i]->y, VPoints[i]->z)));
+		originalVPoints.push_back(new Point3(Vector3(VPoints.at(i)->x, VPoints.at(i)->y, VPoints.at(i)->z)));
 	}
 }
 
 void removeSeedTriangle()
 {
-	int randTri = ((float)rand()) / RAND_MAX * Triangles.size();
-	int i = 0, j;
+	uniform_int<size_t> rand(0, Triangles.size() - 1);
+
+	size_t randTri = rand(rnd_engine);
+	size_t i{ 0 }, j{ 0 };
 	vector<Tri *>::iterator triItr;
 
-	for (triItr = Triangles.begin(); triItr != Triangles.end(); triItr++)
+	for (triItr = Triangles.begin(); triItr != Triangles.end(); ++triItr)
 	{
 		if (i == randTri)
 		{
@@ -2000,14 +2068,14 @@ void createInitialCutPart1()
 {
 	bool inMoreThanOneTriangle = false;
 	bool foundEdge = false;
-	int triInd, edgeInd;
+	size_t triInd{}, edgeInd{};
 
 	// IF there remains an edge e adjacent to only one triangle t
 	//     remove e and t
-	for (int i = 0; i < cutPathEdges.size(); i++)
+	for (size_t i = 0; i < cutPathEdges.size(); i++)
 	{
 		foundEdge = false;
-		for (int j = 0; j < Triangles.size(); j++)
+		for (size_t j = 0; j < Triangles.size(); j++)
 		{
 			if ((cutPathEdges[i]->v1 == Triangles[j]->v1
 				&& cutPathEdges[i]->v2 == Triangles[j]->v2)
@@ -2080,7 +2148,7 @@ void createInitialCutPart1()
 	{
 		vector<Tri *>::iterator triItr;
 		vector<Edge *>::iterator edgeItr;
-		int edgeNum = 0, triNum = 0;
+		size_t edgeNum = 0, triNum = 0;
 
 		for (triItr = Triangles.begin(); triItr != Triangles.end(); triItr++)
 		{
@@ -2088,7 +2156,7 @@ void createInitialCutPart1()
 			if (triInd == triNum)
 			{
 				// Search for each pair of vertices in cutPathEdges
-				for (int i = 0; i < cutPathEdges.size(); i++)
+				for (size_t i = 0; i < cutPathEdges.size(); i++)
 				{
 					if ((cutPathEdges[i]->v1 == Triangles[triInd]->v1
 						&& cutPathEdges[i]->v2 == Triangles[triInd]->v2)
@@ -2148,15 +2216,15 @@ void createInitialCutPart2()
 	//     remove v and e
 	bool inMoreThanOneEdge = false;
 	bool foundVertex = false;
-	int vertInd, edgeInd;
-	int count = 0;
+	size_t vertInd{}, edgeInd{};
+	size_t count = 0;
 
 	// IF there remains a vertex v adjacent to only one edge e
 	//     remove v and e
-	for (int i = 0; i < Vertices.size(); i++)
+	for (size_t i = 0; i < Vertices.size(); i++)
 	{
 		foundVertex = false;
-		for (int j = 0; j < cutPathEdges.size(); j++)
+		for (size_t j = 0; j < cutPathEdges.size(); j++)
 		{
 			if ((i == cutPathEdges[j]->v1) || (i == cutPathEdges[j]->v2))
 			{
@@ -2192,7 +2260,6 @@ void createInitialCutPart2()
 	// IF found one edge, remove that edge and triangle
 	if (foundVertex && !inMoreThanOneEdge)
 	{
-		vector<Vector3 *>::iterator vertItr;
 		vector<Edge *>::iterator edgeItr;
 		int edgeNum = 0, vertNum = 0;
 
@@ -2200,7 +2267,7 @@ void createInitialCutPart2()
 		{
 			removedVandE = true;
 
-			for (int i = 0; i < cutPathEdges.size(); i++)
+			for (size_t i = 0; i < cutPathEdges.size(); i++)
 			{
 				cutPathEdges[i]->color.x = 0;
 				cutPathEdges[i]->color.y = 1;
@@ -2227,12 +2294,12 @@ void createInitialCutPart2()
 	}
 
 
-	for (int i = 0; i < cutPathEdges.size(); i++)
+	for (size_t i = 0; i < cutPathEdges.size(); i++)
 	{
 		bool v1flag = false;
 		bool v2flag = false;
 
-		for (int j = 0; j < cutPathEdges.size(); j++)
+		for (size_t j = 0; j < cutPathEdges.size(); j++)
 		{
 			if (i != j)
 			{
@@ -2375,10 +2442,9 @@ void recreateMesh()
 	//calcAllNewVertexNormals();
 }
 
+
 int main(int argc, char** argv)
 {
-	srand(time(0));
-
 	// Set up my window
 	glutInit(&argc, argv);
 	glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE | GLUT_DEPTH);
@@ -2398,10 +2464,6 @@ int main(int argc, char** argv)
 	// Enable z-buffe
 	glEnable(GL_DEPTH_TEST);
 
-	//LoadTexture("S:/csc570/FinalProject/Debug/images/bunny4.bmp", 1);
-	//LoadTextureNormal("S:/csc570/FinalProject/Debug/images/bunnynormals.bmp", 2);
-	LoadTexture("C:/Program Files/GIM/images/bunny4.bmp", 1);
-	LoadTextureNormal("C:/Program Files/GIM/images/bunnynormals.bmp", 2);
 
 	// Initialization
 	max_x = max_y = max_z = FLT_MIN;
@@ -2419,6 +2481,7 @@ int main(int argc, char** argv)
 	user_shade = SHADE_SMOOTH;
 	myMatrix[0] = myMatrix[5] = myMatrix[10] = myMatrix[15] = 1.0;
 	theta = 0;
+	total_angle = theta;
 	vInitial = Vector3(0., 0., 0.);
 	xTri = GW / 2;
 	yTri = GH / 2;
@@ -2436,37 +2499,81 @@ int main(int argc, char** argv)
 	GIMxInd = 0;
 	GIMyInd = 0;
 
-	// Make sure a file to read is specified
-	if (argc > 1)
+	bool is_exit = false;
+
+	if (argc == 3 || argc == 4)
 	{
-		cout << "file " << argv[1] << endl;
-		// Read-in the mesh file specified
-		ReadFile(argv[1]);
-		//ReadFile("gargoyle500.m");
+		cout << "Input arguments are: " << endl;
 
-		// Once the file is parsed find out the maximum extent to center
-		// and scale mesh
-		max_extent = max_x - min_x;
-		if (max_y - min_y > max_extent) max_extent = max_y - min_y;
+		cout << argc << endl;
+		for (size_t i = 1; i < argc; i++)
+		{
+			cout << "Arg: " << argv[i] << endl;
+		}
 
-		center.x = center.x / Vertices.size();
-		center.y = center.y / Vertices.size();
-		center.z = center.z / Vertices.size();
+		filesystem::path texture_path{ argv[1] };
+		filesystem::path texture_normal_path{ argv[2] };
+
+		if (__DEBUG == 1)
+		{
+			cout << texture_path.filename() << endl;
+		}
+
+		if (texture_path.filename().u8string() != u8"bunny4.bmp")
+		{
+			cout << "A first argument must be texture: 'bunny4.bmp'" << endl;
+			exit(1);
+		}
+
+
+		if (texture_normal_path.filename().u8string() != u8"bunnynormals.bmp")
+		{
+			cout << "A second argument must be texture: 'bunnynormals.bmp'" << endl;
+			exit(1);
+		}
+
+		LoadTexture(texture_path, 1);
+		LoadTextureNormal(texture_normal_path, 2);
+
+		if (argc == 4)
+		{
+			cout << "An input file is " << argv[3] << endl;
+
+			filesystem::path path{ argv[3] };
+
+			// Read-in the mesh file specified
+			ReadFile(path.generic_u8string().c_str());
+
+			// Once the file is parsed find out the maximum extent to center
+			// and scale mesh
+			max_extent = max_x - min_x;
+			if (max_y - min_y > max_extent) max_extent = max_y - min_y;
+
+			center.x = center.x / Vertices.size();
+			center.y = center.y / Vertices.size();
+			center.z = center.z / Vertices.size();
+		}
 	}
 	else
 	{
-		cout << "format is: meshparser filename" << endl;
+		is_exit = true;
 	}
-	calcAllVertexNormals();
 
-	// Final project stuff
-	copyGeometry();
-	calcEdges();
-	removeSeedTriangle();
-	makeMyImage();
-	makeMyNormalImage();
-	init_lighting();
-	glutMainLoop();
+	if (!is_exit)
+	{
+		calcAllVertexNormals();
+
+		// Final project stuff
+		copyGeometry();
+		calcEdges();
+		removeSeedTriangle();
+		makeMyImage();
+		makeMyNormalImage();
+		init_lighting();
+		glutMainLoop();
+	}
+
+	return is_exit ? 1 : 0;
 }
 
 //general intialization for opengl for depth and texture mapping
@@ -2486,11 +2593,12 @@ void init_tex() {
 }
 
 //routines to load in a bmp files - must be 2^nx2^m and a 24bit bmp
-GLvoid LoadTexture(char* image_file, int texID) {
+GLvoid LoadTexture(const filesystem::path & image_file, int texID) {
 
-	TextureImage = (Image *)malloc(sizeof(Image));
+	TextureImage = new Image;
+
 	if (TextureImage == NULL) {
-		printf("Error allocating space for image");
+		cout << "Error allocating space for image" << endl;
 		exit(1);
 	}
 	cout << "trying to load " << image_file << endl;
@@ -2515,14 +2623,14 @@ GLvoid LoadTexture(char* image_file, int texID) {
 /*
 * getint and getshort are help functions to load the bitmap byte by byte
 */
-static unsigned int getint(FILE *fp) {
+static unsigned int getint(ifstream & fp) {
 	int c, c1, c2, c3;
 
 	/*  get 4 bytes */
-	c = getc(fp);
-	c1 = getc(fp);
-	c2 = getc(fp);
-	c3 = getc(fp);
+	c = fp.get();
+	c1 = fp.get();
+	c2 = fp.get();
+	c3 = fp.get();
 
 	return ((unsigned int)c) +
 		(((unsigned int)c1) << 8) +
@@ -2530,38 +2638,47 @@ static unsigned int getint(FILE *fp) {
 		(((unsigned int)c3) << 24);
 }
 
-static unsigned int getshort(FILE *fp) {
+static unsigned int getshort(ifstream & fp) {
 	int c, c1;
 
 	/* get 2 bytes*/
-	c = getc(fp);
-	c1 = getc(fp);
+	c = fp.get();
+	c1 = fp.get();
 
 	return ((unsigned int)c) + (((unsigned int)c1) << 8);
 }
 
 /*  quick and dirty bitmap loader...for 24 bit bitmaps with 1 plane only.  */
 
-int ImageLoad(char *filename, Image *image) {
-	FILE *file;
-	unsigned long size;                 /*  size of the image in bytes. */
-	unsigned long i;                    /*  standard counter. */
-	unsigned short int planes;          /*  number of planes in image (must be 1)  */
-	unsigned short int bpp;             /*  number of bits per pixel (must be 24) */
-	char temp;                          /*  used to convert bgr to rgb color. */
+int ImageLoad(const filesystem::path & filename, Image *image) {
+	/*  size of the image in bytes. */
+	size_t size{};                  /*  standard counter. */
+	unsigned short int planes{};          /*  number of planes in image (must be 1)  */
+	unsigned short int bpp{};             /*  number of bits per pixel (must be 24) */
 
 	/*  make sure the file is there. */
-	if ((file = fopen(filename, "rb")) == NULL) {
-		printf("File Not Found : %s\n", filename);
+	if (!filesystem::exists(filename))
+	{
+		cout << "File not found: " << filename << endl;
+		return 0;
+	}
+
+	ifstream file(filename.generic_u8string().c_str(), ifstream::in | ifstream::binary);
+
+	if (!file)
+	{
+		cout << "Error in opening file: " << filename << endl;
 		return 0;
 	}
 
 	/*  seek through the bmp header, up to the width height: */
-	fseek(file, 18, SEEK_CUR);
+	file.seekg(18, ifstream::cur);
 
 	/*  No 100% errorchecking anymore!!! */
 
-	/*  read the width */    image->sizeX = getint(file);
+	/*  read the width */
+	image->sizeX = getint(file);
+
 
 	/*  read the height */
 	image->sizeY = getint(file);
@@ -2571,49 +2688,54 @@ int ImageLoad(char *filename, Image *image) {
 
 	/*  read the planes */
 	planes = getshort(file);
+
 	if (planes != 1) {
-		printf("Planes from %s is not 1: %u\n", filename, planes);
+		cout << "Planes from " << filename << " is not 1: " << planes << endl;
 		return 0;
 	}
 
 	/*  read the bpp */
 	bpp = getshort(file);
+
 	if (bpp != 24) {
-		printf("Bpp from %s is not 24: %u\n", filename, bpp);
+		cout << "Bpp from " << filename << " is not 24: " << bpp << endl;
 		return 0;
 	}
 
 	/*  seek past the rest of the bitmap header. */
-	fseek(file, 24, SEEK_CUR);
+	file.seekg(24, ifstream::cur);
 
 	/*  read the data.  */
-	image->data = (char *)malloc(size);
+	image->data = new char[size];
+
 	if (image->data == NULL) {
-		printf("Error allocating memory for color-corrected image data");
+		cout << "Error allocating memory for color-corrected image data" << endl;
 		return 0;
 	}
 
-	if ((i = fread(image->data, size, 1, file)) != 1) {
-		printf("Error reading image data from %s.\n", filename);
+	file.read(image->data, size);
+
+	if (!file)
+	{
+		cout << "Error reading image data from " << filename << endl;
 		return 0;
 	}
 
-	for (i = 0; i < size; i += 3) { /*  reverse all of the colors. (bgr -> rgb) */
-		temp = image->data[i];
-		image->data[i] = image->data[i + 2];
-		image->data[i + 2] = temp;
+	for (size_t i = 0; i < size; i += 3)
+	{ /*  reverse all of the colors. (bgr -> rgb) */
+		swap(image->data[i], image->data[i + 2]);
 	}
 
-	fclose(file); /* Close the file and release the filedes */
+	file.close(); /* Close the file and release the filedes */
 
 	/*  we're done. */
 	return 1;
 }
 
 void makeMyImage() {
-	int myX = 0, myY = 0;
+	size_t myX = 0, myY = 0;
 
-	for (int i = 0; i < TextureImage->sizeX * TextureImage->sizeY * 3; i += 3)
+	for (size_t i = 0; i < TextureImage->sizeX * TextureImage->sizeY * 3; i += 3)
 	{
 		myimage[myX][myY].r = ((float)((unsigned char)(TextureImage->data[i]))) / 255.0;
 		myimage[myX][myY].g = ((float)((unsigned char)(TextureImage->data[i + 1]))) / 255.0;
@@ -2645,15 +2767,16 @@ void makeMyImage() {
 	}
 }
 
-GLvoid LoadTextureNormal(char* image_file, int texID) {
+GLvoid LoadTextureNormal(const filesystem::path & image_file, int texID) {
 
-	TextureNormalImage = (Image *)malloc(sizeof(Image));
+	TextureNormalImage = new Image;
+
 	if (TextureNormalImage == NULL) {
 		printf("Error allocating space for image");
 		exit(1);
 	}
 	cout << "trying to load " << image_file << endl;
-	if (!NormalImageLoad(image_file, TextureNormalImage)) {
+	if (!ImageLoad(image_file, TextureNormalImage)) {
 		exit(1);
 	}
 	/*  2d texture, level of detail 0 (normal), 3 components (red, green, blue),            */
@@ -2668,81 +2791,11 @@ GLvoid LoadTextureNormal(char* image_file, int texID) {
 
 }
 
-int NormalImageLoad(char *filename, Image *image) {
-	FILE *file;
-	unsigned long size;                 /*  size of the image in bytes. */
-	unsigned long i;                    /*  standard counter. */
-	unsigned short int planes;          /*  number of planes in image (must be 1)  */
-	unsigned short int bpp;             /*  number of bits per pixel (must be 24) */
-	char temp;                          /*  used to convert bgr to rgb color. */
-
-	/*  make sure the file is there. */
-	if ((file = fopen(filename, "rb")) == NULL) {
-		printf("File Not Found : %s\n", filename);
-		return 0;
-	}
-
-	/*  seek through the bmp header, up to the width height: */
-	fseek(file, 18, SEEK_CUR);
-
-	/*  No 100% errorchecking anymore!!! */
-
-	/*  read the width */    image->sizeX = getint(file);
-
-	/*  read the height */
-	image->sizeY = getint(file);
-
-	/*  calculate the size (assuming 24 bits or 3 bytes per pixel). */
-	size = image->sizeX * image->sizeY * 3;
-
-	/*  read the planes */
-	planes = getshort(file);
-	if (planes != 1) {
-		printf("Planes from %s is not 1: %u\n", filename, planes);
-		return 0;
-	}
-
-	/*  read the bpp */
-	bpp = getshort(file);
-	if (bpp != 24) {
-		printf("Bpp from %s is not 24: %u\n", filename, bpp);
-		return 0;
-	}
-
-	/*  seek past the rest of the bitmap header. */
-	fseek(file, 24, SEEK_CUR);
-
-	/*  read the data.  */
-	image->data = (char *)malloc(size);
-	if (image->data == NULL) {
-		printf("Error allocating memory for color-corrected image data");
-		return 0;
-	}
-
-	if ((i = fread(image->data, size, 1, file)) != 1) {
-		printf("Error reading image data from %s.\n", filename);
-		return 0;
-	}
-
-	for (i = 0; i < size; i += 3) { /*  reverse all of the colors. (bgr -> rgb) */
-		temp = image->data[i];
-		image->data[i] = image->data[i + 2];
-		image->data[i + 2] = temp;
-	}
-
-	fclose(file); /* Close the file and release the filedes */
-
-	/*  we're done. */
-	return 1;
-}
-
-
-
 void makeMyNormalImage()
 {
-	int myX = 0, myY = 0;
+	size_t myX = 0, myY = 0;
 
-	for (int i = 0; i < TextureNormalImage->sizeX * TextureNormalImage->sizeY * 3; i += 3)
+	for (size_t i = 0; i < TextureNormalImage->sizeX * TextureNormalImage->sizeY * 3; i += 3)
 	{
 		mynormalimage[myX][myY].r = ((float)((unsigned char)(TextureNormalImage->data[i]))) / 255.0;
 		mynormalimage[myX][myY].g = ((float)((unsigned char)(TextureNormalImage->data[i + 1]))) / 255.0;
@@ -2796,7 +2849,7 @@ void traverseTree(GIMQuadTreeNode * node)
 	{
 		if (insideBox(myimage2[node->startPosX][node->startPosY]))
 		{
-			for (int k = 0; k < pixelToTri[node->startPosX][node->startPosY].size(); k++)
+			for (size_t k = 0; k < pixelToTri[node->startPosX][node->startPosY].size(); k++)
 			{
 				newTriangles[pixelToTri[node->startPosX][node->startPosY][k]]->drawn = true;
 			}
@@ -2851,7 +2904,7 @@ void cull()
 	}
 
 	// Reset culling
-	for (int i = 0; i < newTriangles.size(); i++)
+	for (size_t i = 0; i < newTriangles.size(); i++)
 	{
 		newTriangles[i]->drawn = false;
 	}

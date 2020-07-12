@@ -1,2 +1,7 @@
-# 3d-reconstruct
-Код для тестирования работы программы нахождения разреза и восстановления 3D мемодели по изображению  
+# Geometry Images: Cutting Algorithm Walkthrough + Rendering Walkthrough Using A Normal Map With Optional Culling
+
+[Original code you can find here](https://users.csc.calpoly.edu/~zwood/teaching/csc570/final07/dalum_gzipkin/)
+
+I try to rewrite it for modern C++ (C++17), but not finished.
+
+You can find more stable version of this project in the [OpenGI](http://opengi.sourceforge.net/index.html).
